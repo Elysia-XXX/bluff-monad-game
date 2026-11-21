@@ -65,6 +65,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 
 .vault {
   position: relative;
+  overflow: hidden;
   width: min(19rem, 74vw);
   aspect-ratio: 1;
   margin: 0 auto;
@@ -76,8 +77,47 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .vault::before, .vault::after { content: ""; position: absolute; inset: 50%; transform: translate(-50%,-50%); border-radius: 999px; }
 .vault::before { width: 31%; height: 31%; border: 2px solid #38bdf8; box-shadow: 0 0 22px rgba(56,189,248,.5); }
 .vault::after { width: 7%; height: 7%; background: #fb4268; box-shadow: 0 0 24px #fb4268; }
+.vault-status {
+  position: absolute;
+  bottom: 10%;
+  left: 50%;
+  z-index: 2;
+  width: 80%;
+  transform: translateX(-50%);
+  text-align: center;
+  font-size: .75rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+  color: rgba(226, 232, 240, .78);
+  text-shadow: 0 0 12px rgba(56, 189, 248, .5);
+}
+.vault-action::before { border-style: dashed; }
+.vault-reveal { border-color: rgba(251, 66, 104, .55); }
+.vault-finished.vault-choice-0 { box-shadow: 0 0 95px rgba(56,189,248,.42), inset 0 0 54px rgba(56,189,248,.2); }
+.vault-finished.vault-choice-0::after { background: #38bdf8; box-shadow: 0 0 38px #38bdf8; }
+.vault-finished.vault-choice-1 { box-shadow: 0 0 95px rgba(251,66,104,.42), inset 0 0 54px rgba(251,66,104,.2); }
+
+.demo-choice {
+  background: rgba(3, 4, 12, .46);
+  border-color: rgba(148, 163, 184, .18);
+  transition: transform .2s ease, border-color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+.demo-choice:hover { transform: translateY(-3px); border-color: rgba(167,139,250,.55); }
+.demo-choice.is-selected {
+  transform: translateY(-3px) scale(1.01);
+  border-color: #a78bfa;
+  background: rgba(124,58,237,.22);
+  box-shadow: 0 12px 42px rgba(76,29,149,.28), inset 0 0 0 1px rgba(255,255,255,.04);
+}
+.demo-reveal { animation: reveal-pop .48s cubic-bezier(.2,.8,.2,1) both; }
 
 @media (prefers-reduced-motion: no-preference) {
   .vault::before { animation: pulse-ring 2.8s ease-in-out infinite; }
+  .vault-action::before { animation: vault-turn 1.2s linear infinite; }
+  .vault-reveal::before { animation: vault-turn .48s linear infinite, pulse-ring .9s ease-in-out infinite; }
+  .vault-finished { animation: vault-open .62s cubic-bezier(.2,.9,.2,1) both; }
   @keyframes pulse-ring { 50% { box-shadow: 0 0 42px rgba(56,189,248,.78); transform: translate(-50%,-50%) scale(1.06); } }
+  @keyframes vault-turn { to { transform: translate(-50%,-50%) rotate(360deg); } }
+  @keyframes vault-open { 45% { transform: scale(.94) rotate(-2deg); } 75% { transform: scale(1.04) rotate(1deg); } 100% { transform: scale(1); } }
+  @keyframes reveal-pop { from { opacity: 0; transform: translateY(18px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
 }

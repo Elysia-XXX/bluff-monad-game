@@ -26,11 +26,20 @@ import {
 } from "@/lib/bluff";
 
 type LocalSecret = { gameId: string; choice: 0 | 1; salt: Hex; bluffer: Address; createdAt: number };
+type PlayMode = "demo" | "chain";
+type DemoStage = "secret" | "action" | "reveal" | "finished";
 
 const STATUS = ["不存在", "等待挑战者", "等待揭晓", "已结束"];
 const FINISH_REASON = ["未结束", "正常揭晓", "挑战者超时", "设局者超时"];
 const SECRET = ["TREASURE · 宝藏", "TRAP · 陷阱"];
 const ACTION = ["TRUST · 相信", "EXPOSE · 揭穿"];
+
+function demoScores(secret: 0 | 1, action: 0 | 1) {
+  if (secret === 0 && action === 0) return [2, 2] as const;
+  if (secret === 0 && action === 1) return [3, 0] as const;
+  if (secret === 1 && action === 0) return [4, 0] as const;
+  return [0, 4] as const;
+}
 
 function secretKey(gameId: string, bluffer: string) {
   return `bluff:secret:${CONTRACT_ADDRESS.toLowerCase()}:${gameId}:${bluffer.toLowerCase()}`;
@@ -52,6 +61,10 @@ function friendlyError(error: unknown) {
 }
 
 export default function Home() {
+  const [playMode, setPlayMode] = useState<PlayMode>("demo");
+  const [demoStage, setDemoStage] = useState<DemoStage>("secret");
+  const [demoSecret, setDemoSecret] = useState<0 | 1>(0);
+  const [demoAction, setDemoAction] = useState<0 | 1>(0);
   const [account, setAccount] = useState<Address>();
   const [chainOk, setChainOk] = useState(false);
   const [challenger, setChallenger] = useState("");
@@ -63,6 +76,14 @@ export default function Home() {
   const [error, setError] = useState("");
   const [lastTx, setLastTx] = useState<Hex>();
   const [now, setNow] = useState(() => Date.now());
+
+  const [demoBlufferScore, demoChallengerScore] = demoScores(demoSecret, demoAction);
+
+  function resetDemo() {
+    setDemoStage("secret");
+    setDemoSecret(0);
+    setDemoAction(0);
+  }
 
   const role = useMemo(() => {
     if (!account || !game) return "观战者";
@@ -270,14 +291,25 @@ export default function Home() {
 
   return (
     <main className="grid-overlay min-h-screen px-4 py-5 sm:px-7 lg:px-10">
+      {(notice || error) && (
+        <div role="status" className={`fixed right-4 top-4 z-50 max-w-sm rounded-2xl border px-5 py-4 text-sm shadow-2xl backdrop-blur-xl ${error ? "border-rose-400/40 bg-rose-950/90 text-rose-100" : "border-emerald-400/40 bg-emerald-950/90 text-emerald-100"}`}>
+          <b className="block">{error ? "操作未完成" : "操作成功"}</b>
+          <span className="mt-1 block leading-6">{error || notice}</span>
+          <button className="mt-2 text-xs underline" onClick={() => { setError(""); setNotice(""); }}>关闭</button>
+        </div>
+      )}
       <header className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 border-b border-violet-300/10 pb-5">
         <div className="flex items-center gap-4">
           <div className="rounded-xl border border-violet-400/40 bg-violet-500/15 px-3 py-2 font-black tracking-[.22em] text-violet-200">BLUFF</div>
           <div><p className="text-sm font-bold text-white">暗箱博弈</p><p className="text-xs text-slate-400">谎言自由，承诺不可篡改</p></div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex rounded-xl border border-white/10 bg-black/25 p-1">
+            <button onClick={() => setPlayMode("demo")} className={`rounded-lg px-3 py-2 text-sm font-bold transition ${playMode === "demo" ? "bg-violet-500 text-white" : "text-slate-400 hover:text-white"}`}>无钱包试玩</button>
+            <button onClick={() => setPlayMode("chain")} className={`rounded-lg px-3 py-2 text-sm font-bold transition ${playMode === "chain" ? "bg-cyan-600 text-white" : "text-slate-400 hover:text-white"}`}>链上实战</button>
+          </div>
           <a href={contractUrl} target="_blank" rel="noreferrer" className="rounded-full border border-fuchsia-400/20 px-3 py-2 text-xs text-fuchsia-200 hover:border-fuchsia-300/50">Monad Testnet · 10143</a>
-          <button onClick={connectWallet} className={chainOk ? "btn-secondary" : "btn-danger"}>{account ? shortAddress(account) : "连接钱包"}</button>
+          {playMode === "chain" && <button onClick={connectWallet} className={chainOk ? "btn-secondary" : "btn-danger"}>{account ? shortAddress(account) : "连接钱包"}</button>}
         </div>
       </header>
 
@@ -285,9 +317,15 @@ export default function Home() {
         <div className="panel rounded-3xl p-6 sm:p-8">
           <div className="mb-6 flex items-center justify-between gap-3">
             <div><p className="text-xs font-black tracking-[.2em] text-cyan-300">ONCHAIN MIND GAME</p><h1 className="mt-2 text-3xl font-black sm:text-5xl">你敢相信吗？</h1></div>
-            <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-slate-300">{game ? STATUS[game.status] : "未载入房间"}</span>
+            <span className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-slate-300">{playMode === "demo" ? "互动试玩 · 不上链" : game ? STATUS[game.status] : "未载入房间"}</span>
           </div>
-          <div className="vault" aria-label="神秘保险箱" />
+          <div className={`vault ${playMode === "demo" ? `vault-${demoStage} vault-choice-${demoSecret}` : game?.status === 3 ? `vault-finished vault-choice-${game.revealedSecret}` : "vault-idle"}`} aria-label="神秘保险箱">
+            <span className="vault-status">
+              {playMode === "demo"
+                ? demoStage === "secret" ? "选择秘密" : demoStage === "action" ? "秘密已锁定" : demoStage === "reveal" ? "等待揭晓" : SECRET[demoSecret]
+                : game?.status === 3 && game.finishReason === 1 ? SECRET[game.revealedSecret] : "COMMITTED"}
+            </span>
+          </div>
           <div className="mt-7 grid grid-cols-3 gap-2 text-center text-xs text-slate-400">
             <div><b className="block text-base text-violet-200">承诺</b>秘密上锁</div>
             <div><b className="block text-base text-cyan-200">抉择</b>相信或揭穿</div>
@@ -296,6 +334,77 @@ export default function Home() {
         </div>
 
         <div className="space-y-5">
+          {playMode === "demo" && (
+            <section className="panel rounded-3xl p-5 sm:p-7">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold tracking-[.16em] text-amber-300">INTERACTIVE DEMO · 本地试玩</p>
+                  <h2 className="mt-2 text-2xl font-black">
+                    {demoStage === "secret" ? "设局者：选择暗箱内容" : demoStage === "action" ? "挑战者：相信还是揭穿？" : demoStage === "reveal" ? "答案已经锁定" : "真相揭晓"}
+                  </h2>
+                </div>
+                <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100">试玩数据不上链</span>
+              </div>
+
+              {demoStage === "secret" && (
+                <div className="mt-6">
+                  <p className="text-sm leading-6 text-slate-400">先替设局者选择宝藏或陷阱。点击卡片会立即改变保险箱状态。</p>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    {[0, 1].map((choice) => (
+                      <button key={choice} onClick={() => setDemoSecret(choice as 0 | 1)} className={`demo-choice rounded-2xl border p-5 text-left ${demoSecret === choice ? "is-selected" : ""}`}>
+                        <span className={`text-2xl ${choice === 0 ? "text-cyan-200" : "text-rose-200"}`}>{choice === 0 ? "◆" : "⚠"}</span>
+                        <b className="mt-3 block">{SECRET[choice]}</b>
+                        <span className="mt-1 block text-sm text-slate-500">{choice === 0 ? "也许真诚才是最深的诱导" : "让对手走进你布下的陷阱"}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button className="btn-primary mt-5 w-full" onClick={() => setDemoStage("action")}>锁定秘密</button>
+                </div>
+              )}
+
+              {demoStage === "action" && (
+                <div className="mt-6">
+                  <div className="rounded-2xl border border-violet-400/20 bg-violet-500/10 p-4 text-center">
+                    <span className="text-sm text-violet-200">秘密已锁进保险箱，挑战者看不到答案</span>
+                    <div className="mx-auto mt-3 h-2 w-2/3 overflow-hidden rounded-full bg-black/40"><div className="h-full w-full animate-pulse bg-gradient-to-r from-violet-500 via-cyan-400 to-rose-500" /></div>
+                  </div>
+                  <p className="mt-5 text-sm text-slate-400">现在站在挑战者立场做决定：</p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <button className="btn-secondary min-h-24 text-lg" onClick={() => { setDemoAction(0); setDemoStage("reveal"); }}>TRUST<br /><span className="text-sm font-normal">选择相信</span></button>
+                    <button className="btn-danger min-h-24 text-lg" onClick={() => { setDemoAction(1); setDemoStage("reveal"); }}>EXPOSE<br /><span className="text-sm font-normal">当场揭穿</span></button>
+                  </div>
+                </div>
+              )}
+
+              {demoStage === "reveal" && (
+                <div className="mt-8 text-center">
+                  <p className="text-sm text-slate-400">挑战者选择了</p>
+                  <p className="mt-2 text-3xl font-black text-cyan-200">{ACTION[demoAction]}</p>
+                  <p className="mt-4 text-sm text-slate-500">答案不能再修改。点击按钮打开保险箱。</p>
+                  <button className="btn-primary mt-6 w-full py-4 text-lg" onClick={() => setDemoStage("finished")}>打开保险箱</button>
+                </div>
+              )}
+
+              {demoStage === "finished" && (
+                <div className="demo-reveal mt-6 rounded-3xl border border-fuchsia-400/30 bg-gradient-to-br from-fuchsia-500/15 to-cyan-500/10 p-6 text-center">
+                  <p className="text-xs font-bold tracking-[.2em] text-fuchsia-200">REVEALED</p>
+                  <p className={`mt-3 text-3xl font-black ${demoSecret === 0 ? "text-cyan-200" : "text-rose-200"}`}>{SECRET[demoSecret]}</p>
+                  <p className="mt-2 text-slate-300">挑战者选择：{ACTION[demoAction]}</p>
+                  <div className="mt-6 flex justify-center gap-12">
+                    <div><b className="text-4xl text-violet-200">{demoBlufferScore}</b><span className="block text-sm text-slate-500">设局者</span></div>
+                    <div><b className="text-4xl text-cyan-200">{demoChallengerScore}</b><span className="block text-sm text-slate-500">挑战者</span></div>
+                  </div>
+                  <p className="mt-5 text-xs text-amber-200/70">这是本地交互试玩，不是链上交易结果。</p>
+                  <div className="mt-5 grid grid-cols-2 gap-3">
+                    <button className="btn-secondary" onClick={resetDemo}>再玩一次</button>
+                    <button className="btn-primary" onClick={() => setPlayMode("chain")}>进入链上实战</button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {playMode === "chain" && <>
           <section className="panel rounded-3xl p-5 sm:p-7">
             <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <div><p className="text-xs font-bold tracking-[.16em] text-slate-500">ROOM TERMINAL</p><h2 className="mt-1 text-xl font-black">进入链上房间</h2></div>
@@ -374,13 +483,12 @@ export default function Home() {
             </section>
           )}
 
-          {(notice || error || lastTx) && (
+          {lastTx && (
             <section className="panel rounded-2xl p-4 text-sm">
-              {notice && <p className="text-emerald-200">{notice}</p>}
-              {error && <p className="text-rose-200">{error}</p>}
               {lastTx && <a className="mt-2 block break-all font-mono text-xs text-cyan-300 underline" href={txUrl(lastTx)} target="_blank" rel="noreferrer">交易：{lastTx}</a>}
             </section>
           )}
+          </>}
         </div>
       </section>
       <footer className="mx-auto flex max-w-[1440px] flex-wrap justify-between gap-3 border-t border-white/5 py-5 text-xs text-slate-600"><span>积分仅用于游戏，不代表任何资产价值。</span><a href={contractUrl} target="_blank" rel="noreferrer" className="hover:text-cyan-300">Contract {shortAddress(CONTRACT_ADDRESS)}</a></footer>
