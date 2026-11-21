@@ -9,6 +9,7 @@ import {
   isAddress,
   keccak256,
   toHex,
+  verifyMessage,
   type Address,
   type Hex,
 } from "viem";
@@ -28,6 +29,14 @@ import {
 type LocalSecret = { gameId: string; choice: 0 | 1; salt: Hex; bluffer: Address; createdAt: number };
 type PlayMode = "demo" | "chain";
 type DemoStage = "secret" | "action" | "reveal" | "finished";
+type DemoRoundRecord = {
+  round: number;
+  secret: 0 | 1;
+  action: 0 | 1;
+  confidence: number;
+  blufferScore: number;
+  challengerScore: number;
+};
 
 const STATUS = ["不存在", "等待挑战者", "等待揭晓", "已结束"];
 const FINISH_REASON = ["未结束", "正常揭晓", "挑战者超时", "设局者超时"];
@@ -39,6 +48,21 @@ function demoScores(secret: 0 | 1, action: 0 | 1) {
   if (secret === 0 && action === 1) return [3, 0] as const;
   if (secret === 1 && action === 0) return [4, 0] as const;
   return [0, 4] as const;
+}
+
+function resultHeadline(secret: number, action: number) {
+  if (secret === 1 && action === 0) return "欺骗成功";
+  if (secret === 1 && action === 1) return "完美识破";
+  if (secret === 0 && action === 0) return "信任成立";
+  return "误判真心";
+}
+
+function bluffMessage(gameId: string, claim: string) {
+  return `BLUFF GAME #${gameId}\nContract: ${CONTRACT_ADDRESS}\nDeclaration: ${claim}`;
+}
+
+function confidenceKey(gameId: string) {
+  return `bluff:confidence:${CONTRACT_ADDRESS.toLowerCase()}:${gameId}`;
 }
 
 function secretKey(gameId: string, bluffer: string) {
@@ -65,10 +89,17 @@ export default function Home() {
   const [demoStage, setDemoStage] = useState<DemoStage>("secret");
   const [demoSecret, setDemoSecret] = useState<0 | 1>(0);
   const [demoAction, setDemoAction] = useState<0 | 1>(0);
+  const [demoRound, setDemoRound] = useState(1);
+  const [demoHistory, setDemoHistory] = useState<DemoRoundRecord[]>([]);
+  const [confidence, setConfidence] = useState(68);
   const [account, setAccount] = useState<Address>();
   const [chainOk, setChainOk] = useState(false);
   const [challenger, setChallenger] = useState("");
   const [secretChoice, setSecretChoice] = useState<0 | 1>(0);
+  const [taunt, setTaunt] = useState("相信我，箱子里一定是宝藏。");
+  const [roomTaunt, setRoomTaunt] = useState("");
+  const [roomSignature, setRoomSignature] = useState<Hex>();
+  const [tauntVerified, setTauntVerified] = useState<boolean | null>(null);
   const [gameId, setGameId] = useState("");
   const [game, setGame] = useState<GameView>();
   const [busy, setBusy] = useState("");
@@ -79,10 +110,36 @@ export default function Home() {
 
   const [demoBlufferScore, demoChallengerScore] = demoScores(demoSecret, demoAction);
 
+  const demoTotals = demoHistory.reduce(
+    (totals, round) => round.round % 2 === 1
+      ? [totals[0] + round.blufferScore, totals[1] + round.challengerScore] as const
+      : [totals[0] + round.challengerScore, totals[1] + round.blufferScore] as const,
+    [0, 0] as readonly [number, number],
+  );
+
   function resetDemo() {
     setDemoStage("secret");
     setDemoSecret(0);
     setDemoAction(0);
+    setDemoRound(1);
+    setDemoHistory([]);
+    setConfidence(68);
+  }
+
+  function finishDemoRound() {
+    const [blufferScore, challengerScore] = demoScores(demoSecret, demoAction);
+    setDemoHistory((history) => history.some((item) => item.round === demoRound)
+      ? history
+      : [...history, { round: demoRound, secret: demoSecret, action: demoAction, confidence, blufferScore, challengerScore }]);
+    setDemoStage("finished");
+  }
+
+  function nextDemoRound() {
+    setDemoRound((round) => Math.min(3, round + 1));
+    setDemoStage("secret");
+    setDemoSecret(0);
+    setDemoAction(0);
+    setConfidence(68);
   }
 
   const role = useMemo(() => {
@@ -164,7 +221,12 @@ export default function Home() {
   }, [gameId]);
 
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("game");
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("game");
+    const claim = params.get("claim");
+    const signature = params.get("sig");
+    if (claim) setRoomTaunt(claim.slice(0, 120));
+    if (signature?.startsWith("0x")) setRoomSignature(signature as Hex);
     if (id && /^\d+$/.test(id)) { setGameId(id); void refreshGame(id, true); }
     const hydrate = async () => {
       if (!window.ethereum) return;
@@ -175,6 +237,27 @@ export default function Home() {
     };
     void hydrate();
   }, [refreshGame]);
+
+  useEffect(() => {
+    if (!game || !gameId || !roomTaunt || !roomSignature) {
+      setTauntVerified(null);
+      return;
+    }
+    let cancelled = false;
+    void verifyMessage({
+      address: game.bluffer,
+      message: bluffMessage(gameId, roomTaunt),
+      signature: roomSignature,
+    }).then((valid) => { if (!cancelled) setTauntVerified(valid); })
+      .catch(() => { if (!cancelled) setTauntVerified(false); });
+    return () => { cancelled = true; };
+  }, [game, gameId, roomTaunt, roomSignature]);
+
+  useEffect(() => {
+    if (!gameId || typeof window === "undefined") return;
+    const saved = localStorage.getItem(confidenceKey(gameId));
+    if (saved && /^\d+$/.test(saved)) setConfidence(Math.min(100, Number(saved)));
+  }, [gameId]);
 
   useEffect(() => {
     if (!/^\d+$/.test(gameId)) return;
@@ -194,6 +277,12 @@ export default function Home() {
       const { selected, walletClient } = await requireWallet();
       if (getAddress(challenger) === selected) throw new Error("不能挑战自己，请填写另一个钱包地址。");
       const expectedGameId = await publicClient.readContract({ address: CONTRACT_ADDRESS, abi: bluffGameAbi, functionName: "nextGameId" });
+      const cleanTaunt = taunt.trim();
+      if (!cleanTaunt) throw new Error("请先写一句公开宣言。它可以是真话，也可以是谎言。");
+      const signature = await walletClient.signMessage({
+        account: selected,
+        message: bluffMessage(expectedGameId.toString(), cleanTaunt),
+      });
       const saltBytes = new Uint8Array(32);
       crypto.getRandomValues(saltBytes);
       const salt = toHex(saltBytes) as Hex;
@@ -215,6 +304,13 @@ export default function Home() {
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 60_000 });
       if (receipt.status !== "success") throw new Error("创建房间交易已回滚。");
       const id = expectedGameId.toString();
+      setRoomTaunt(cleanTaunt);
+      setRoomSignature(signature);
+      const roomUrl = new URL(window.location.href);
+      roomUrl.searchParams.set("game", id);
+      roomUrl.searchParams.set("claim", cleanTaunt);
+      roomUrl.searchParams.set("sig", signature);
+      window.history.replaceState({}, "", roomUrl);
       setGameId(id);
       await refreshGame(id);
       setNotice(`房间 #${id} 已上链。秘密恢复信息仅保存在当前浏览器，请勿清理数据。`);
@@ -235,6 +331,7 @@ export default function Home() {
       setLastTx(hash);
       const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 60_000 });
       if (receipt.status !== "success") throw new Error("挑战者行动交易已回滚。");
+      localStorage.setItem(confidenceKey(gameId), String(confidence));
       await refreshGame();
       setNotice(`${ACTION[action]} 已确认上链。`);
     } catch (e) { setError(friendlyError(e)); }
@@ -343,7 +440,10 @@ export default function Home() {
                     {demoStage === "secret" ? "设局者：选择暗箱内容" : demoStage === "action" ? "挑战者：相信还是揭穿？" : demoStage === "reveal" ? "答案已经锁定" : "真相揭晓"}
                   </h2>
                 </div>
-                <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100">试玩数据不上链</span>
+                <div className="text-right">
+                  <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100">第 {demoRound} / 3 局</span>
+                  <p className="mt-2 text-xs text-slate-500">{demoRound % 2 === 1 ? "玩家 A 设局 · 玩家 B 挑战" : "玩家 B 设局 · 玩家 A 挑战"}</p>
+                </div>
               </div>
 
               {demoStage === "secret" && (
@@ -358,6 +458,13 @@ export default function Home() {
                       </button>
                     ))}
                   </div>
+                  <label className="mt-5 block text-sm font-bold text-slate-300">公开宣言 <span className="font-normal text-slate-500">（可以说谎）</span></label>
+                  <input className="field mt-2" maxLength={120} value={taunt} onChange={(e) => setTaunt(e.target.value)} placeholder="例如：相信我，里面一定是宝藏。" />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {["相信我，箱子里一定是宝藏。", "你如果揭穿，一定会后悔。", "我知道你会选 EXPOSE。"].map((line) => (
+                      <button key={line} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-slate-400 transition hover:border-violet-400/40 hover:text-violet-200" onClick={() => setTaunt(line)}>{line}</button>
+                    ))}
+                  </div>
                   <button className="btn-primary mt-5 w-full" onClick={() => setDemoStage("action")}>锁定秘密</button>
                 </div>
               )}
@@ -367,6 +474,12 @@ export default function Home() {
                   <div className="rounded-2xl border border-violet-400/20 bg-violet-500/10 p-4 text-center">
                     <span className="text-sm text-violet-200">秘密已锁进保险箱，挑战者看不到答案</span>
                     <div className="mx-auto mt-3 h-2 w-2/3 overflow-hidden rounded-full bg-black/40"><div className="h-full w-full animate-pulse bg-gradient-to-r from-violet-500 via-cyan-400 to-rose-500" /></div>
+                  </div>
+                  <blockquote className="taunt-card mt-4">“{taunt || "……"}”<span>设局者公开宣言</span></blockquote>
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex justify-between text-sm"><b>你的判断信心</b><b className="text-cyan-200">{confidence}%</b></div>
+                    <input aria-label="判断信心" className="confidence-range mt-3" type="range" min="0" max="100" value={confidence} onChange={(e) => setConfidence(Number(e.target.value))} />
+                    <div className="mt-1 flex justify-between text-[11px] text-slate-600"><span>纯靠直觉</span><span>绝对确定</span></div>
                   </div>
                   <p className="mt-5 text-sm text-slate-400">现在站在挑战者立场做决定：</p>
                   <div className="mt-3 grid grid-cols-2 gap-3">
@@ -380,23 +493,32 @@ export default function Home() {
                 <div className="mt-8 text-center">
                   <p className="text-sm text-slate-400">挑战者选择了</p>
                   <p className="mt-2 text-3xl font-black text-cyan-200">{ACTION[demoAction]}</p>
+                  <p className="mt-2 text-sm text-slate-400">判断信心 {confidence}%</p>
                   <p className="mt-4 text-sm text-slate-500">答案不能再修改。点击按钮打开保险箱。</p>
-                  <button className="btn-primary mt-6 w-full py-4 text-lg" onClick={() => setDemoStage("finished")}>打开保险箱</button>
+                  <button className="btn-primary mt-6 w-full py-4 text-lg" onClick={finishDemoRound}>打开保险箱</button>
                 </div>
               )}
 
               {demoStage === "finished" && (
                 <div className="demo-reveal mt-6 rounded-3xl border border-fuchsia-400/30 bg-gradient-to-br from-fuchsia-500/15 to-cyan-500/10 p-6 text-center">
                   <p className="text-xs font-bold tracking-[.2em] text-fuchsia-200">REVEALED</p>
+                  <p className="mt-2 text-2xl font-black text-white">{resultHeadline(demoSecret, demoAction)}</p>
                   <p className={`mt-3 text-3xl font-black ${demoSecret === 0 ? "text-cyan-200" : "text-rose-200"}`}>{SECRET[demoSecret]}</p>
-                  <p className="mt-2 text-slate-300">挑战者选择：{ACTION[demoAction]}</p>
+                  <p className="mt-2 text-slate-300">挑战者选择：{ACTION[demoAction]} · 信心 {confidence}%</p>
                   <div className="mt-6 flex justify-center gap-12">
                     <div><b className="text-4xl text-violet-200">{demoBlufferScore}</b><span className="block text-sm text-slate-500">设局者</span></div>
                     <div><b className="text-4xl text-cyan-200">{demoChallengerScore}</b><span className="block text-sm text-slate-500">挑战者</span></div>
                   </div>
-                  <p className="mt-5 text-xs text-amber-200/70">这是本地交互试玩，不是链上交易结果。</p>
+                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-left">
+                    <div className="flex items-center justify-between"><b className="text-sm">三局总比分</b><b className="text-sm text-violet-200">玩家 A {demoTotals[0]} : {demoTotals[1]} 玩家 B</b></div>
+                    <div className="mt-3 space-y-2">
+                      {demoHistory.map((item) => <div key={item.round} className="flex flex-wrap justify-between gap-2 text-xs text-slate-400"><span>第 {item.round} 局 · {resultHeadline(item.secret, item.action)}</span><span>{item.blufferScore}:{item.challengerScore} · 信心 {item.confidence}%</span></div>)}
+                    </div>
+                    {demoRound === 3 && <p className="mt-3 border-t border-white/10 pt-3 text-center font-black text-white">{demoTotals[0] === demoTotals[1] ? "三局战平" : demoTotals[0] > demoTotals[1] ? "玩家 A 赢下心理战" : "玩家 B 赢下心理战"}</p>}
+                  </div>
+                  <p className="mt-4 text-xs text-amber-200/70">本地三局制仅用于试玩，不是链上交易结果；链上实战为单局结算。</p>
                   <div className="mt-5 grid grid-cols-2 gap-3">
-                    <button className="btn-secondary" onClick={resetDemo}>再玩一次</button>
+                    <button className="btn-secondary" onClick={demoRound < 3 ? nextDemoRound : resetDemo}>{demoRound < 3 ? "下一局" : "重新比赛"}</button>
                     <button className="btn-primary" onClick={() => setPlayMode("chain")}>进入链上实战</button>
                   </div>
                 </div>
@@ -429,6 +551,9 @@ export default function Home() {
                   </button>
                 ))}
               </div>
+              <label className="mt-5 block text-sm font-bold text-slate-300">公开宣言 <span className="font-normal text-slate-500">（钱包签名，可真可假）</span></label>
+              <input className="field mt-2" maxLength={120} value={taunt} onChange={(e) => setTaunt(e.target.value)} placeholder="向挑战者说一句话……" />
+              <p className="mt-2 text-xs leading-5 text-slate-500">创建时钱包会先签名这句话，再发送上链交易。签名不消耗 Gas，房间链接会携带宣言与签名。</p>
               <label className="mt-5 block text-sm font-bold text-slate-300">指定挑战者地址</label>
               <input className="field mt-2 font-mono text-sm" placeholder="0x…" value={challenger} onChange={(e) => setChallenger(e.target.value.trim())} />
               <button className="btn-primary mt-4 w-full" disabled={!!busy} onClick={createGame}>{busy === "create" ? "等待钱包与链上确认…" : "生成承诺并创建房间"}</button>
@@ -447,10 +572,24 @@ export default function Home() {
               </div>
               <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-4"><span className="text-xs text-slate-500">链上 Commitment</span><code className="mt-1 block break-all text-xs text-slate-300">{game.commitment}</code></div>
 
+              {roomTaunt && (
+                <blockquote className="taunt-card mt-3">
+                  “{roomTaunt}”
+                  <span>设局者公开宣言 · {tauntVerified === true ? "✓ 钱包签名有效" : tauntVerified === false ? "⚠ 签名无效" : "正在验证签名"}</span>
+                </blockquote>
+              )}
+
               {game.status === 1 && role === "挑战者" && (
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <button className="btn-secondary" disabled={!!busy} onClick={() => chooseAction(0)}>{busy === "trust" ? "确认中…" : "TRUST · 相信"}</button>
-                  <button className="btn-danger" disabled={!!busy} onClick={() => chooseAction(1)}>{busy === "expose" ? "确认中…" : "EXPOSE · 揭穿"}</button>
+                <div className="mt-5">
+                  <div className="mb-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex justify-between text-sm"><b>你的判断信心</b><b className="text-cyan-200">{confidence}%</b></div>
+                    <input aria-label="判断信心" className="confidence-range mt-3" type="range" min="0" max="100" value={confidence} onChange={(e) => setConfidence(Number(e.target.value))} />
+                    <p className="mt-1 text-[11px] text-slate-600">仅记录你的心理判断，不改变链上积分。</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button className="btn-secondary" disabled={!!busy} onClick={() => chooseAction(0)}>{busy === "trust" ? "确认中…" : "TRUST · 相信"}</button>
+                    <button className="btn-danger" disabled={!!busy} onClick={() => chooseAction(1)}>{busy === "expose" ? "确认中…" : "EXPOSE · 揭穿"}</button>
+                  </div>
                 </div>
               )}
 
@@ -470,6 +609,7 @@ export default function Home() {
               {game.status === 3 && (
                 <div className="mt-5 rounded-2xl border border-fuchsia-400/25 bg-gradient-to-br from-fuchsia-500/10 to-cyan-500/10 p-5 text-center">
                   <p className="text-xs font-bold tracking-[.18em] text-fuchsia-200">{FINISH_REASON[game.finishReason]}</p>
+                  {game.finishReason === 1 && <p className="mt-2 text-2xl font-black">{resultHeadline(game.revealedSecret, game.action)}</p>}
                   {game.finishReason === 1 && <p className="mt-2 text-lg font-black">{SECRET[game.revealedSecret]} · {ACTION[game.action]}</p>}
                   <p className="mt-3 text-3xl font-black">{winner}</p>
                   <div className="mt-4 flex justify-center gap-8"><div><b className="text-3xl text-violet-200">{game.blufferScore}</b><span className="block text-xs text-slate-500">设局者</span></div><div><b className="text-3xl text-cyan-200">{game.challengerScore}</b><span className="block text-xs text-slate-500">挑战者</span></div></div>

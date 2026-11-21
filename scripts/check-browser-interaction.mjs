@@ -82,6 +82,9 @@ const demoRun = await command("Runtime.evaluate", {
     return {
       revealed: document.body.innerText.includes("REVEALED"),
       trap: document.body.innerText.includes("TRAP · 陷阱"),
+      mindResult: document.body.innerText.includes("完美识破"),
+      roundScore: document.body.innerText.includes("三局总比分"),
+      nextRound: Boolean(button("下一局")),
       scores: document.body.innerText.includes("设局者") && document.body.innerText.includes("挑战者"),
       disclaimer: document.body.innerText.includes("不是链上交易结果"),
     };
@@ -89,7 +92,7 @@ const demoRun = await command("Runtime.evaluate", {
 });
 const demoResult = demoRun.result?.result?.value;
 console.log(JSON.stringify({ demo: demoResult }, null, 2));
-if (!demoResult?.revealed || !demoResult?.trap || !demoResult?.scores || !demoResult?.disclaimer) {
+if (!demoResult?.revealed || !demoResult?.trap || !demoResult?.mindResult || !demoResult?.roundScore || !demoResult?.nextRound || !demoResult?.scores || !demoResult?.disclaimer) {
   throw new Error("Full demo flow did not reach the revealed result");
 }
 const screenshot = await command("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
