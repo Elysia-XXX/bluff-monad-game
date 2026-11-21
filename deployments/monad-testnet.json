@@ -1,0 +1,14 @@
+{
+  "network": "Monad Testnet",
+  "chainId": 10143,
+  "contractName": "BluffGame",
+  "contractAddress": "0xAe3f56228405Eb3DACf7c2eE0991511900ef1BC4",
+  "deploymentTransaction": "0xdda2db19ce1d935323773ead6ab33f8108868286f516abb9a9c7438372f440cf",
+  "deploymentBlock": 81510993,
+  "actionWindowSeconds": 900,
+  "revealWindowSeconds": 600,
+  "explorer": "https://testnet.monadvision.com/address/0xAe3f56228405Eb3DACf7c2eE0991511900ef1BC4",
+  "verifiedOnChain": true,
+  "supersedes": "0x3e93A4E233Dc24bB52716346c8e9271bD62317A5",
+  "upgradeReason": "Bind createGame to expectedGameId so concurrent room creation cannot invalidate commitments"
+}

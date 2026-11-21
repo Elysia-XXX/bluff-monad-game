@@ -1,0 +1,13 @@
+node_modules/
+.next/
+*.tsbuildinfo
+artifacts/
+cache/
+coverage/
+outputs/
+dist/
+.env
+.env.*
+!.env.example
+deployment*.json
+*.log

@@ -1,0 +1,21 @@
+{
+  "network": "Monad Testnet",
+  "chainId": 10143,
+  "contractAddress": "0xAe3f56228405Eb3DACf7c2eE0991511900ef1BC4",
+  "gameId": 0,
+  "bluffer": "0xB8324F15E04FA19d14A514ef987FE79A21a65eF6",
+  "challenger": "0xFf2908EB2e7fb5ff55f69E55FD35BD1E948537cc",
+  "secret": "TRAP",
+  "action": "EXPOSE",
+  "blufferScore": 0,
+  "challengerScore": 4,
+  "finishReason": "REVEALED",
+  "transactions": {
+    "fundChallenger": "0x028122a701360e29736af7c18abe1890a23164e7037848b3ba458f79cacb5862",
+    "createGame": "0xf48d597e587594410e52deed82da1055390b4f72a3a687caefaf585d2cee583c",
+    "chooseAction": "0x1ce8c3e47e8679badb2254941e222832a21bb55e6ef277d2ec6007a22f9715ac",
+    "reveal": "0xba3c0882567e80713eee0d94303887bb5764304a5a98d2d810649f69e2621a29",
+    "cleanup": "0x7a9b6c21f415a5d510395e8f95333072852d5ee51c0cacb941c65cbb32f88b40"
+  },
+  "verified": true
+}

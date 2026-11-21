@@ -1,0 +1,44 @@
+{
+  "name": "bluff-monad-game",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BLUFF — a two-player commit-reveal mind game for Monad Testnet",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc -p tsconfig.web.json --noEmit",
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:contract": "hardhat test test/BluffGame.ts",
+    "preflight:monad": "hardhat run scripts/preflight.ts --network monadTestnet",
+    "verify:monad": "hardhat run scripts/verify-deployment.ts --network monadTestnet",
+    "e2e:monad": "hardhat run scripts/e2e-monad.ts --network monadTestnet",
+    "deploy:monad": "hardhat run scripts/deploy.ts --network monadTestnet"
+  },
+  "dependencies": {
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "viem": "2.58.4"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "2.0.8",
+    "@nomicfoundation/hardhat-ethers": "3.0.8",
+    "@nomicfoundation/hardhat-network-helpers": "1.0.12",
+    "@types/chai": "4.3.20",
+    "@types/mocha": "10.0.10",
+    "@types/node": "24.10.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.2.3",
+    "autoprefixer": "10.4.21",
+    "chai": "4.5.0",
+    "dotenv": "16.4.7",
+    "ethers": "6.13.5",
+    "hardhat": "2.22.19",
+    "postcss": "8.5.6",
+    "tailwindcss": "3.4.19",
+    "ts-node": "10.9.2",
+    "typescript": "5.7.3"
+  }
+}
